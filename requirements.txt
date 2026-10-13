@@ -1,7 +1,6 @@
-
 streamlit
 pandas
 pydantic
 python-dotenv
 pypdf
-google-generativeai
+google-genai
