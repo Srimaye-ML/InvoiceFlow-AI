@@ -1,7 +1,13 @@
 
 from datetime import date
 from decimal import Decimal
+import json
+import time
+
 from pydantic import BaseModel, Field, ConfigDict
+from google.genai import errors
+
+from src.gemini_client import get_gemini_client
 
 
 class InvoiceData(BaseModel):
@@ -23,13 +29,9 @@ class InvoiceData(BaseModel):
     amount_paid: Decimal | None = Field(default=None, ge=0)
     balance_due: Decimal | None = Field(default=None, ge=0)
 
-import json
-
-from src.gemini_client import get_gemini_client
-
 
 def extract_invoice_with_gemini(invoice_text: str) -> InvoiceData:
-    """Extract structured invoice fields from text using Gemini."""
+    """Extract invoice fields using Gemini, retrying temporary API errors."""
 
     if not invoice_text.strip():
         raise ValueError("No invoice text was provided.")
@@ -55,13 +57,28 @@ Invoice text:
 {invoice_text}
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-        },
-    )
+    max_attempts = 3
+
+    for attempt in range(max_attempts):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+            break
+
+        except errors.APIError as error:
+            if error.code not in (429, 500, 502, 503, 504):
+                raise
+
+            if attempt == max_attempts - 1:
+                raise RuntimeError(
+                    "Gemini is temporarily unavailable after 3 attempts. "
+                    "Your invoice text is still available. Please try again later."
+                ) from error
+
+            time.sleep(2 ** (attempt + 1))
 
     if not response.text:
         raise ValueError("Gemini returned an empty response.")

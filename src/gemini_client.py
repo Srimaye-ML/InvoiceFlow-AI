@@ -1,8 +1,10 @@
 
 import os
+import time
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors
 
 
 # Load API settings from the project's .env file.
@@ -24,13 +26,31 @@ def get_gemini_client():
 
 
 def test_gemini_connection() -> str:
-    """Send a small test request to Gemini."""
+    """Send a small test request to Gemini with limited retries."""
 
     client = get_gemini_client()
+    max_attempts = 3
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents="Reply with exactly: InvoiceFlow AI connection successful."
-    )
+    for attempt in range(max_attempts):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=(
+                    "Reply with exactly: "
+                    "InvoiceFlow AI connection successful."
+                ),
+            )
 
-    return response.text or "Gemini returned an empty response."
+            return response.text or "Gemini returned an empty response."
+
+        except errors.APIError as error:
+            if error.code not in (429, 500, 502, 503, 504):
+                raise
+
+            if attempt == max_attempts - 1:
+                raise RuntimeError(
+                    "Gemini is temporarily unavailable after 3 attempts. "
+                    "Please try again later."
+                ) from error
+
+            time.sleep(2 ** (attempt + 1))
